@@ -1,0 +1,3 @@
+[submodule "Eliza-GPT"]
+	path = Eliza-GPT
+	url = https://github.com/gmerritt/Eliza-GPT.git
