@@ -10,6 +10,7 @@ API_KEY_SSM=""
 API_KEY_SECRET=""
 TEMPLATE_FILE=template.yaml
 ZIP_NAME=eliza_lambda_package.zip
+ZIP_PATH="$(pwd)/$ZIP_NAME"
 LAMBDA_DIR=lambda
 
 show_usage() {
@@ -111,13 +112,13 @@ else
 fi
 
 echo "Creating package zip (includes lambda/ and Eliza-GPT/src/eliza_gpt)..."
-rm -f $ZIP_NAME
+rm -f "$ZIP_PATH"
 tmpdir=$(mktemp -d)
-trap 'rm -rf "$tmpdir"' EXIT
+trap 'rm -rf "'$tmpdir'"' EXIT
 
-# Copy lambda contents
-mkdir -p "$tmpdir/lambda"
-cp -r $LAMBDA_DIR/* "$tmpdir/lambda/"
+# Copy lambda contents into the package root (so app.py is at ZIP root)
+mkdir -p "$tmpdir"
+cp -r ${LAMBDA_DIR}/* "$tmpdir/"
 
 # Include Eliza-GPT source if present
 if [ -d "Eliza-GPT/src/eliza_gpt" ]; then
@@ -125,44 +126,34 @@ if [ -d "Eliza-GPT/src/eliza_gpt" ]; then
   cp -r Eliza-GPT/src/eliza_gpt "$tmpdir/eliza_gpt/"
 fi
 
-(cd "$tmpdir" && zip -r ../$ZIP_NAME .)
+(
+  cd "$tmpdir" && zip -r "$ZIP_PATH" .
+)
 
 # Use a unique key per deploy so CFN reliably detects changes
 KEY="eliza_lambda_package-$(date +%s).zip"
 echo "Uploading to s3://$S3_BUCKET/$KEY"
-aws s3 cp $ZIP_NAME s3://$S3_BUCKET/$KEY
+aws s3 cp "$ZIP_PATH" "s3://$S3_BUCKET/$KEY"
 
 echo "Packaging and deploying CloudFormation stack ($STACK_NAME)"
-aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_BUCKET --output-template-file packaged-template.yaml
-CFN_PARAMS="LambdaS3Bucket=$S3_BUCKET LambdaS3Key=$KEY RequireApiKey=$( [ -n "$API_KEY_PLAIN" -o -n "$API_KEY_SSM" -o -n "$API_KEY_SECRET" ] && echo true || echo false )"
+aws cloudformation package --template-file "$TEMPLATE_FILE" --s3-bucket "$S3_BUCKET" --output-template-file packaged-template.yaml
+# Build parameter overrides as an array to avoid word-splitting/quoting issues
+PARAM_OVERRIDES=("LambdaS3Bucket=$S3_BUCKET" "LambdaS3Key=$KEY" "RequireApiKey=$( [ -n \"$API_KEY_PLAIN\" -o -n \"$API_KEY_SSM\" -o -n \"$API_KEY_SECRET\" ] && echo true || echo false )")
 if [ -n "$API_KEY_PLAIN" ]; then
   # Create a Secrets Manager secret for the plain key to avoid storing plaintext in CFN
   secret_name="eliza/api_key/$STACK_NAME-$(date +%s)"
   echo "Creating Secrets Manager secret $secret_name"
   create_out=$(aws secretsmanager create-secret --name "$secret_name" --secret-string "{\"api_key\": \"$API_KEY_PLAIN\"}" --query ARN --output text)
-  CFN_PARAMS="$CFN_PARAMS ApiKeySecretId=$create_out"
+  PARAM_OVERRIDES+=("ApiKeySecretId=$create_out")
 fi
 if [ -n "$API_KEY_SSM" ]; then
-  CFN_PARAMS="$CFN_PARAMS ApiKeySSMParameterName=$API_KEY_SSM"
+  PARAM_OVERRIDES+=("ApiKeySSMParameterName=$API_KEY_SSM")
 fi
 if [ -n "$API_KEY_SECRET" ]; then
-  CFN_PARAMS="$CFN_PARAMS ApiKeySecretId=$API_KEY_SECRET"
+  PARAM_OVERRIDES+=("ApiKeySecretId=$API_KEY_SECRET")
 fi
 
-aws cloudformation deploy --template-file packaged-template.yaml --stack-name $STACK_NAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides $CFN_PARAMS
-
-S3_VERSION=""
-if command -v jq >/dev/null 2>&1; then
-  # try to capture the version id (works if bucket versioning enabled)
-  S3_VERSION=$(aws s3api head-object --bucket $S3_BUCKET --key $KEY --query VersionId --output text 2>/dev/null || true)
-fi
-
-echo "Captured S3 version: ${S3_VERSION}"
-
-if [ -n "$S3_VERSION" ] && [ "$S3_VERSION" != "None" ]; then
-  echo "Updating stack with S3 object version"
-  aws cloudformation deploy --template-file packaged-template.yaml --stack-name $STACK_NAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides "$CFN_PARAMS LambdaS3ObjectVersion=$S3_VERSION"
-fi
+aws cloudformation deploy --template-file packaged-template.yaml --stack-name "$STACK_NAME" --capabilities CAPABILITY_NAMED_IAM --parameter-overrides "${PARAM_OVERRIDES[@]}"
 
 echo "Fetching stack outputs to write litellm config..."
 API_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)

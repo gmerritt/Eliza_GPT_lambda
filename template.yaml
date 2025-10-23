@@ -113,7 +113,6 @@ Resources:
         S3Key: !Ref LambdaS3Key
         # Optionally include object version for buckets with versioning enabled
         S3ObjectVersion: !If [HasS3ObjectVersion, !Ref LambdaS3ObjectVersion, !Ref AWS::NoValue]
-      Publish: true
 
   LogGroup:
     Type: AWS::Logs::LogGroup

@@ -1,0 +1,14 @@
+model_list:
+  - model_name: eliza-lambda
+    litellm_params:
+      model: openai/eliza-lambda
+      api_base: https://cpkfyjudmk.execute-api.us-west-2.amazonaws.com/
+      api_key: "my-api-key-123"
+      supports_system_message: False
+
+general_settings:
+  pass_through_endpoints:
+    - path_prefix: /eliza
+      target_url: https://cpkfyjudmk.execute-api.us-west-2.amazonaws.com/
+      headers:
+        Authorization: "Bearer my-api-key-123"

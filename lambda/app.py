@@ -32,25 +32,36 @@ def _init_eliza() -> Tuple[dict, list, list]:
         import sys
         import importlib.util
 
-        # Search upward from current file for a directory named 'Eliza-GPT'
+        # Search for eliza_gpt/eliza_gpt/eliza_py in the Lambda package
         from pathlib import Path
         here = Path(__file__).resolve().parent
         eliza_py_dir = None
-        for parent in [here] + list(here.parents):
-            candidate = parent / 'Eliza-GPT' / 'src' / 'eliza_gpt' / 'eliza_py'
-            if candidate.is_dir():
-                eliza_py_dir = str(candidate)
-                break
-            # Also check if repo already has src/eliza_gpt/eliza_py
-            candidate2 = parent / 'src' / 'eliza_gpt' / 'eliza_py'
-            if candidate2.is_dir():
-                eliza_py_dir = str(candidate2)
-                break
+        
+        # In the deployed Lambda package, eliza_gpt/ is at the root alongside app.py
+        candidate = here / 'eliza_gpt' / 'eliza_gpt' / 'eliza_py'
+        if candidate.is_dir():
+            eliza_py_dir = str(candidate)
+        else:
+            # Fallback: search upward for local dev/test environments
+            for parent in [here] + list(here.parents):
+                candidate_old = parent / 'Eliza-GPT' / 'src' / 'eliza_gpt' / 'eliza_py'
+                if candidate_old.is_dir():
+                    eliza_py_dir = str(candidate_old)
+                    break
+                candidate_src = parent / 'src' / 'eliza_gpt' / 'eliza_py'
+                if candidate_src.is_dir():
+                    eliza_py_dir = str(candidate_src)
+                    break
+        
         if not eliza_py_dir:
             logger.exception('Eliza eliza_py directory not found in expected locations')
             raise ImportError('Eliza eliza_py directory not found')
 
         try:
+            # Add eliza_py directory to sys.path so relative imports (e.g., 'from utils.startup import setup') work
+            if eliza_py_dir not in sys.path:
+                sys.path.insert(0, eliza_py_dir)
+            
             # Load eliza.py
             spec = importlib.util.spec_from_file_location('eliza_py.eliza', os.path.join(eliza_py_dir, 'eliza.py'))
             eliza_mod = importlib.util.module_from_spec(spec)
