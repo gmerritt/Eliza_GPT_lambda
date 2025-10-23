@@ -25,24 +25,54 @@ logger.setLevel(logging.INFO)
 
 def _init_eliza() -> Tuple[dict, list, list]:
     """Initialize Eliza scripts and return (general_script, script, memory_inputs)."""
-    global GENERAL_SCRIPT_PATH, SCRIPT_PATH, eliza_setup
     if eliza_setup is None:
-        # Try to add a likely path relative to this file to import eliza_gpt
+        # Try to locate the Eliza-GPT source tree relative to this repo and
+        # load the eliza_py modules directly from files to avoid importing the
+        # top-level package (which pulls in microdot and other deps).
         import sys
-        repo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        possible = [
-            os.path.join(repo_root, 'Eliza-GPT', 'src'),
-            os.path.join(repo_root, '..', 'Eliza-GPT', 'src'),
-        ]
-        for p in possible:
-            if os.path.isdir(p) and p not in sys.path:
-                sys.path.insert(0, p)
+        import importlib.util
+
+        # Search upward from current file for a directory named 'Eliza-GPT'
+        from pathlib import Path
+        here = Path(__file__).resolve().parent
+        eliza_py_dir = None
+        for parent in [here] + list(here.parents):
+            candidate = parent / 'Eliza-GPT' / 'src' / 'eliza_gpt' / 'eliza_py'
+            if candidate.is_dir():
+                eliza_py_dir = str(candidate)
+                break
+            # Also check if repo already has src/eliza_gpt/eliza_py
+            candidate2 = parent / 'src' / 'eliza_gpt' / 'eliza_py'
+            if candidate2.is_dir():
+                eliza_py_dir = str(candidate2)
+                break
+        if not eliza_py_dir:
+            logger.exception('Eliza eliza_py directory not found in expected locations')
+            raise ImportError('Eliza eliza_py directory not found')
+
         try:
-            from eliza_gpt.eliza_py.eliza import GENERAL_SCRIPT_PATH, SCRIPT_PATH
-            from eliza_gpt.eliza_py.utils.startup import setup as eliza_setup
-            from eliza_gpt.eliza_py.utils.response import generate_response
+            # Load eliza.py
+            spec = importlib.util.spec_from_file_location('eliza_py.eliza', os.path.join(eliza_py_dir, 'eliza.py'))
+            eliza_mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(eliza_mod)
+
+            # Load utils.startup
+            spec2 = importlib.util.spec_from_file_location('eliza_py.utils.startup', os.path.join(eliza_py_dir, 'utils', 'startup.py'))
+            startup_mod = importlib.util.module_from_spec(spec2)
+            spec2.loader.exec_module(startup_mod)
+
+            # Load utils.response
+            spec3 = importlib.util.spec_from_file_location('eliza_py.utils.response', os.path.join(eliza_py_dir, 'utils', 'response.py'))
+            response_mod = importlib.util.module_from_spec(spec3)
+            spec3.loader.exec_module(response_mod)
+
+            # assign into module globals to avoid parser-level 'global' issues
+            globals()['GENERAL_SCRIPT_PATH'] = getattr(eliza_mod, 'GENERAL_SCRIPT_PATH')
+            globals()['SCRIPT_PATH'] = getattr(eliza_mod, 'SCRIPT_PATH')
+            globals()['eliza_setup'] = getattr(startup_mod, 'setup')
+            globals()['generate_response'] = getattr(response_mod, 'generate_response')
         except Exception as e:
-            logger.exception('Failed to import Eliza modules: %s', e)
+            logger.exception('Failed to load Eliza modules from files: %s', e)
             raise
 
     general_script, script, memory_inputs, _ = eliza_setup(GENERAL_SCRIPT_PATH, SCRIPT_PATH)

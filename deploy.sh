@@ -2,26 +2,190 @@
 # Simple deploy helper: package code into S3 and deploy CloudFormation
 set -euo pipefail
 
-S3_BUCKET=${1:-}
-STACK_NAME=${2:-eliza-lambda-stack}
+# Parse arguments
+S3_BUCKET=""
+STACK_NAME="eliza-lambda-stack"
+API_KEY_PLAIN=""
+API_KEY_SSM=""
+API_KEY_SECRET=""
 TEMPLATE_FILE=template.yaml
 ZIP_NAME=eliza_lambda_package.zip
 LAMBDA_DIR=lambda
 
-if [ -z "$S3_BUCKET" ]; then
-  echo "Usage: $0 <s3-bucket> [stack-name]"
-  exit 1
+show_usage() {
+  cat <<EOF
+Usage: $0 [s3-bucket] [options]
+
+Optional:
+  s3-bucket               S3 bucket name for deployment artifacts
+                          (default: eliza-lambda-<account-id>)
+
+Options:
+  --stack-name NAME       CloudFormation stack name (default: eliza-lambda-stack)
+  --api-key KEY           API key for authentication (stored in Secrets Manager)
+  --api-key-ssm PARAM     SSM Parameter name containing API key
+  --api-key-secret ARN    Secrets Manager secret ARN/ID containing API key
+
+Examples:
+  $0
+  $0 --api-key my-secret-key
+  $0 my-deploy-bucket
+  $0 my-deploy-bucket --stack-name prod-eliza
+  $0 my-deploy-bucket --stack-name dev-eliza --api-key my-secret-key
+EOF
+}
+
+# Parse arguments - first positional arg (if not a flag) is bucket
+if [ $# -gt 0 ] && [[ "$1" != --* ]]; then
+  S3_BUCKET=$1
+  shift
 fi
 
-echo "Creating package zip..."
-rm -f $ZIP_NAME
-(cd $LAMBDA_DIR && zip -r ../$ZIP_NAME .)
+# Parse remaining options
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --stack-name)
+      STACK_NAME="$2"
+      shift 2
+      ;;
+    --api-key)
+      API_KEY_PLAIN="$2"
+      shift 2
+      ;;
+    --api-key-ssm)
+      API_KEY_SSM="$2"
+      shift 2
+      ;;
+    --api-key-secret)
+      API_KEY_SECRET="$2"
+      shift 2
+      ;;
+    -h|--help)
+      show_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_usage
+      exit 1
+      ;;
+  esac
+done
 
-echo "Uploading to s3://$S3_BUCKET/$ZIP_NAME"
-aws s3 cp $ZIP_NAME s3://$S3_BUCKET/$ZIP_NAME
+# If bucket not specified, use a safe project-specific default (timestamp + random suffix)
+if [ -z "$S3_BUCKET" ]; then
+  suffix_ts=$(date +%s)
+  suffix_rand=$(openssl rand -hex 3 2>/dev/null || echo "$(date +%N | sha1sum | cut -c1-6)")
+  # Use a stable, project-specific default bucket name so repeated deploys reuse the same bucket.
+  S3_BUCKET="eliza-gpt-deploy"
+  echo "No S3 bucket provided. Using default bucket: $S3_BUCKET"
+  echo "Note: this bucket name is global. If it already exists in another account/region you may need to provide a unique bucket name using the first positional argument."
+fi
+
+# Ensure AWS CLI credentials are available and valid
+if ! STS_ID=$(aws sts get-caller-identity --query Arn --output text 2>/dev/null); then
+  echo "ERROR: AWS credentials not found or invalid. Please configure AWS CLI credentials before running this script." >&2
+  exit 2
+fi
+echo "Deploying as: $STS_ID"
+
+# If bucket doesn't exist, create it (so this script can run from a fresh account)
+echo "Checking S3 bucket: $S3_BUCKET"
+if ! aws s3api head-bucket --bucket "$S3_BUCKET" 2>/dev/null; then
+  echo "S3 bucket $S3_BUCKET does not exist. Creating..."
+  # Try to infer region
+  REGION=$(aws configure get region || true)
+  if [ -z "$REGION" ]; then
+    REGION=us-east-1
+  fi
+  if [ "$REGION" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "$S3_BUCKET" || { echo "Failed to create bucket in us-east-1" >&2; exit 3; }
+  else
+    aws s3api create-bucket --bucket "$S3_BUCKET" --create-bucket-configuration LocationConstraint=$REGION || { echo "Failed to create bucket in $REGION" >&2; exit 3; }
+  fi
+  # Enable versioning to support deterministic deploys
+  echo "Enabling versioning on bucket $S3_BUCKET"
+  aws s3api put-bucket-versioning --bucket "$S3_BUCKET" --versioning-configuration Status=Enabled || true
+else
+  echo "S3 bucket $S3_BUCKET exists."
+fi
+
+echo "Creating package zip (includes lambda/ and Eliza-GPT/src/eliza_gpt)..."
+rm -f $ZIP_NAME
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
+
+# Copy lambda contents
+mkdir -p "$tmpdir/lambda"
+cp -r $LAMBDA_DIR/* "$tmpdir/lambda/"
+
+# Include Eliza-GPT source if present
+if [ -d "Eliza-GPT/src/eliza_gpt" ]; then
+  mkdir -p "$tmpdir/eliza_gpt"
+  cp -r Eliza-GPT/src/eliza_gpt "$tmpdir/eliza_gpt/"
+fi
+
+(cd "$tmpdir" && zip -r ../$ZIP_NAME .)
+
+# Use a unique key per deploy so CFN reliably detects changes
+KEY="eliza_lambda_package-$(date +%s).zip"
+echo "Uploading to s3://$S3_BUCKET/$KEY"
+aws s3 cp $ZIP_NAME s3://$S3_BUCKET/$KEY
 
 echo "Packaging and deploying CloudFormation stack ($STACK_NAME)"
 aws cloudformation package --template-file $TEMPLATE_FILE --s3-bucket $S3_BUCKET --output-template-file packaged-template.yaml
-aws cloudformation deploy --template-file packaged-template.yaml --stack-name $STACK_NAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides LambdaS3Bucket=$S3_BUCKET
+CFN_PARAMS="LambdaS3Bucket=$S3_BUCKET LambdaS3Key=$KEY RequireApiKey=$( [ -n "$API_KEY_PLAIN" -o -n "$API_KEY_SSM" -o -n "$API_KEY_SECRET" ] && echo true || echo false )"
+if [ -n "$API_KEY_PLAIN" ]; then
+  # Create a Secrets Manager secret for the plain key to avoid storing plaintext in CFN
+  secret_name="eliza/api_key/$STACK_NAME-$(date +%s)"
+  echo "Creating Secrets Manager secret $secret_name"
+  create_out=$(aws secretsmanager create-secret --name "$secret_name" --secret-string "{\"api_key\": \"$API_KEY_PLAIN\"}" --query ARN --output text)
+  CFN_PARAMS="$CFN_PARAMS ApiKeySecretId=$create_out"
+fi
+if [ -n "$API_KEY_SSM" ]; then
+  CFN_PARAMS="$CFN_PARAMS ApiKeySSMParameterName=$API_KEY_SSM"
+fi
+if [ -n "$API_KEY_SECRET" ]; then
+  CFN_PARAMS="$CFN_PARAMS ApiKeySecretId=$API_KEY_SECRET"
+fi
+
+aws cloudformation deploy --template-file packaged-template.yaml --stack-name $STACK_NAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides $CFN_PARAMS
+
+S3_VERSION=""
+if command -v jq >/dev/null 2>&1; then
+  # try to capture the version id (works if bucket versioning enabled)
+  S3_VERSION=$(aws s3api head-object --bucket $S3_BUCKET --key $KEY --query VersionId --output text 2>/dev/null || true)
+fi
+
+echo "Captured S3 version: ${S3_VERSION}"
+
+if [ -n "$S3_VERSION" ] && [ "$S3_VERSION" != "None" ]; then
+  echo "Updating stack with S3 object version"
+  aws cloudformation deploy --template-file packaged-template.yaml --stack-name $STACK_NAME --capabilities CAPABILITY_NAMED_IAM --parameter-overrides "$CFN_PARAMS LambdaS3ObjectVersion=$S3_VERSION"
+fi
+
+echo "Fetching stack outputs to write litellm config..."
+API_URL=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" --output text)
+if [ -z "$API_URL" ] || [ "$API_URL" = "None" ]; then
+  echo "Warning: could not find ApiUrl stack output. Check CloudFormation outputs." >&2
+else
+  cat > litellm_config.yaml <<EOF
+model_list:
+  - model_name: eliza-lambda
+    litellm_params:
+      model: openai/eliza-lambda
+      api_base: ${API_URL}
+      api_key: "${API_KEY_PLAIN}"
+      supports_system_message: False
+
+general_settings:
+  pass_through_endpoints:
+    - path_prefix: /eliza
+      target_url: ${API_URL}
+      headers:
+        Authorization: "Bearer ${API_KEY_PLAIN}"
+EOF
+  echo "Wrote litellm_config.yaml"
+fi
 
 echo "Deployment complete."

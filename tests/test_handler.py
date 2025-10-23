@@ -9,7 +9,8 @@ ELIZA_SRC = os.path.join(ROOT, 'Eliza-GPT', 'src')
 if os.path.isdir(ELIZA_SRC) and ELIZA_SRC not in sys.path:
     sys.path.insert(0, ELIZA_SRC)
 
-from lambda import app as eliza_app
+import importlib
+eliza_app = importlib.import_module('lambda.app')
 
 
 def make_event(body: dict, headers: dict = None, source_ip: str = '1.2.3.4'):
