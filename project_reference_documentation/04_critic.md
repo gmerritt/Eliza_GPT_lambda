@@ -107,7 +107,8 @@ The critic mode review covers:
 - **Description**: The CloudFormation template at `template.yaml` is not well-formed and fails validation with `aws cloudformation validate-template`. The error occurs in the complex `!If` condition used to set the `API_KEY` environment variable. The dynamic reference to Secrets Manager appears to have incorrect syntax (`::` at the end).
 - **Impact**: The stack cannot be deployed or updated. This is a blocking issue for any environment.
 - **Recommendation**: Refactor the nested `!If` statements for the `API_KEY` variable. The shorthand YAML syntax for intrinsic functions is difficult to read and prone to errors. Use the expanded, multi-line syntax for clarity. The reference to Secrets Manager should be corrected to `{{resolve:secretsmanager:${ApiKeySecretId}:SecretString:api_key}}`.
-- **Status**: Open
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Converted nested `!If` statements to explicit `Fn::If` long form syntax for both IAM policies and Lambda environment variables. Fixed Secrets Manager dynamic reference syntax. Template now validates successfully with `aws cloudformation validate-template`.
 
 **Finding #4: Overly Permissive IAM Policy for Secrets**
 - **Severity**: High
@@ -115,7 +116,8 @@ The critic mode review covers:
 - **Description**: The `LambdaSecretsPolicy` in `template.yaml` grants `secretsmanager:GetSecretValue` and `ssm:GetParameter` permissions. However, the `Resource` for each is conditionally applied. If one condition is met (e.g., `HasApiKeySecret`), the resource for the other permission (e.g., SSM) is set to `!Ref AWS::NoValue`. This can lead to unexpected behavior or overly broad permissions if not carefully managed. A better approach is to conditionally include the entire policy statement.
 - **Impact**: If misconfigured, the Lambda function could gain access to more secrets or parameters than necessary, violating the principle of least privilege.
 - **Recommendation**: Instead of using `!Ref AWS::NoValue` in the `Resource` block, create separate policy statements for SSM and Secrets Manager. Conditionally attach each policy statement to the IAM role only if the corresponding parameter (`ApiKeySSMParameterName` or `ApiKeySecretId`) is provided. This ensures no permissions are granted if the feature is not used.
-- **Status**: Open
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Separated IAM policies into distinct policy statements (`LambdaSSMPolicy` and `LambdaSecretsPolicy`). Each policy is now conditionally included in the IAM role using `Fn::If` statements only when the corresponding parameter is provided. Added `AWSLambdaBasicExecutionRole` managed policy for standard Lambda logging. This ensures strict adherence to least privilege principle.
 
 ---
 
@@ -614,7 +616,7 @@ Each review section should be signed off when completed:
 | Review Area | Reviewer | Date | Status |
 |-------------|----------|------|--------|
 | Code Quality | GitHub Copilot | 2025-10-22 | In Progress |
-| Infrastructure | | | Not Started |
+| Infrastructure | GitHub Copilot | 2025-10-22 | Complete |
 | Security | | | Not Started |
 | Testing | GitHub Copilot | 2025-10-22 | Complete |
 | Documentation | GitHub Copilot | 2025-10-22 | Complete |

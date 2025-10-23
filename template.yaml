@@ -49,6 +49,8 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
         - PolicyName: LambdaLogsPolicy
           PolicyDocument:
@@ -60,18 +62,26 @@ Resources:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
                 Resource: !Sub arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${LogGroupName}:*
-        - PolicyName: LambdaSecretsPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
-                Resource: !If [HasApiKeySecret, !Ref ApiKeySecretId, !Ref AWS::NoValue]
-              - Effect: Allow
-                Action:
-                  - ssm:GetParameter
-                Resource: !If [HasApiKeySSM, !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ApiKeySSMParameterName}, !Ref AWS::NoValue]
+        - Fn::If:
+            - HasApiKeySSM
+            - PolicyName: LambdaSSMPolicy
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action: ssm:GetParameter
+                    Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${ApiKeySSMParameterName}
+            - Ref: AWS::NoValue
+        - Fn::If:
+            - HasApiKeySecret
+            - PolicyName: LambdaSecretsPolicy
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action: secretsmanager:GetSecretValue
+                    Resource: !Ref ApiKeySecretId
+            - Ref: AWS::NoValue
 
   ElizaLambdaFunction:
     Type: AWS::Lambda::Function
@@ -85,7 +95,17 @@ Resources:
           ALLOWED_CALLER_CIDR: !Ref AllowedCallerCIDR
           LOG_GROUP_NAME: !Ref LogGroupName
           REQUIRE_API_KEY: !Ref RequireApiKey
-          API_KEY: !If [HasApiKeyPlain, !Ref ApiKeyPlain, !If [HasApiKeySSM, !Sub '{{resolve:ssm-secure:${ApiKeySSMParameterName}:1}}', !If [HasApiKeySecret, !Sub '{{resolve:secretsmanager:${ApiKeySecretId}:SecretString:api_key::}}', !Ref AWS::NoValue]]]
+          API_KEY:
+            Fn::If:
+              - HasApiKeyPlain
+              - !Ref ApiKeyPlain
+              - Fn::If:
+                  - HasApiKeySSM
+                  - !Sub '{{resolve:ssm-secure:${ApiKeySSMParameterName}:1}}'
+                  - Fn::If:
+                      - HasApiKeySecret
+                      - !Sub '{{resolve:secretsmanager:${ApiKeySecretId}:SecretString:api_key}}'
+                      - Ref: AWS::NoValue
       Timeout: 10
       MemorySize: 256
       Code:
