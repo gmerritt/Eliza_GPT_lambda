@@ -19,6 +19,27 @@ A zero-to-everything AWS Lambda deployment that exposes the classic Eliza chatbo
 
 ## Quick Start
 
+# Eliza-GPT Lambda
+
+A zero-to-everything AWS Lambda deployment that exposes the classic Eliza chatbot as an OpenAI-compatible chat completion endpoint. This project provides complete infrastructure-as-code with one-command deployment from a fresh AWS account.
+
+## What this project delivers
+
+- **Lambda handler** (Python 3.10) wrapping Eliza-GPT with OpenAI-style chat completion JSON responses
+- **CloudFormation template** (`template.yaml`) defining Lambda, IAM role, API Gateway HTTP API, and CloudWatch LogGroup
+- **One-step deployment** (`deploy.sh`) that creates all AWS resources, packages code, and deploys the complete stack
+- **Clean teardown** (`undeploy.sh`) that removes the stack and all deployment artifacts
+- **Unit tests** (`tests/test_handler.py`) for local validation without AWS access
+- **LiteLLM configuration** auto-generated with your deployed API URL
+
+## Prerequisites
+
+- AWS CLI installed and configured with valid credentials (run `aws configure` or set environment variables)
+- IAM permissions to create S3 buckets, Secrets Manager secrets, CloudFormation stacks, IAM roles, API Gateway, and Lambda functions
+- Python 3.10+ (for local testing only)
+
+## Quick Start
+
 Deploy to a fresh AWS account with zero arguments:
 
 ```bash
@@ -64,8 +85,6 @@ Or use defaults:
 - `[s3-bucket]` (optional) — S3 bucket name for deployment artifacts. Default: `eliza-gpt-deploy`
 - `--stack-name NAME` (optional) — CloudFormation stack name. Default: `eliza-lambda-stack`
 - `--api-key KEY` (optional) — API key for authentication. Stored securely in Secrets Manager.
-- `--api-key-ssm PARAM` (optional) — Use existing SSM Parameter for API key
-- `--api-key-secret ARN` (optional) — Use existing Secrets Manager secret for API key
 - `--api-key-ssm PARAM` (optional) — Use existing SSM Parameter for API key
 - `--api-key-secret ARN` (optional) — Use existing Secrets Manager secret for API key
 
@@ -183,3 +202,62 @@ Consider adding:
 ### CI/CD integration
 
 Run `deploy.sh` from GitHub Actions or similar CI systems. Required secrets: AWS credentials with deployment permissions.
+
+## API Contract
+
+A brief summary of the API request/response format is provided here for quick reference. The full API contract (including edge cases and error responses) is documented in `project_reference_documentation/02_spec.md`.
+
+- Request: POST /v1/chat/completions with a JSON body containing a `messages` array. Each message is an object with `role` and `content`. The handler expects at least one `user` message.
+
+Example request body:
+
+```json
+{
+	"messages": [
+		{"role": "user", "content": "Hello"}
+	]
+}
+```
+
+- Response: OpenAI-style chat completion JSON. Typical top-level fields include `id`, `object`, `choices`, and `usage`. The generated assistant message appears at `choices[0].message` and has `role: "assistant"` and `content` fields.
+
+See `project_reference_documentation/02_spec.md` for full schema, status-code mapping, and error response examples.
+
+## Logging and Troubleshooting
+
+The Lambda emits structured JSON logs to CloudWatch Logs. The LogGroup name is derived from the CloudFormation-created Lambda function and typically looks like:
+
+```
+/aws/lambda/<stack-name>-ElizaLambdaFunction-<logical-id>
+```
+
+Log entries are single-line JSON objects containing fields such as `timestamp`, `request_id`, `caller_ip`, `path`, `status_code`, `latency_ms`, and a short `message_preview`. Example log line:
+
+```json
+{"timestamp":"2025-10-22T12:34:56Z","request_id":"abcd-1234","caller_ip":"203.0.113.5","path":"/v1/chat/completions","status_code":200,"latency_ms":12,"message_preview":"hello"}
+```
+
+Common troubleshooting tips:
+
+- 401 Unauthorized: Verify the API key is present in Secrets Manager (or SSM) and that clients send `Authorization: Bearer <key>`.
+- 403 Forbidden: Check `AllowedCallerCIDR` and confirm the caller IP (or `X-Forwarded-For`) falls within the allowed range.
+- 400 Bad Request: The request body may be missing `messages` or contain malformed JSON. Validate payload formatting.
+- 500 Internal Server Error: Inspect CloudWatch Logs for stack traces. Common causes include missing/incorrect Eliza packaging or runtime exceptions during response generation.
+
+For local debugging, run the unit tests and invoke `lambda.app.lambda_handler` with an event that closely mirrors API Gateway v2 HTTP events.
+
+## Project Documentation
+
+The project contains extended reference and design documents under `project_reference_documentation/` that are useful for contributors and integrators:
+
+- `01_planning.md` — planning and goals
+- `02_spec.md` — API contract and detailed input/output schema (recommended for integrators)
+- `03_implementation.md` — implementation notes and packaging instructions
+
+Linking these documents from the top-level README helps new contributors find design rationale and operational guidance quickly.
+
+## License and Attribution
+
+This repository includes the `Eliza-GPT` submodule located in `Eliza-GPT/`. The submodule is distributed under its own license—please see `Eliza-GPT/LICENSE` for details and attribution requirements.
+
+When redistributing or modifying this project, ensure you comply with the `Eliza-GPT` license and include the required attribution.

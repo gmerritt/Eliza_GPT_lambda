@@ -367,6 +367,14 @@ The critic mode review covers:
 - **Description**: The main `README.md` does not document the API contract (the expected JSON input and output format). While this information is available in `project_reference_documentation/02_spec.md`, a user-focused document like the README should provide at least a summary or a direct link.
 - **Impact**: Developers wishing to integrate with the API must search the project for the specification file instead of finding the necessary information in the primary documentation. This increases the effort required to use the service.
 - **Recommendation**: Add a section to `README.md` that either summarizes the request/response format or provides a direct link to the "API Contract" section within `02_spec.md`.
+**Finding #23: Unclear API Contract in Main README**
+- **Severity**: Medium
+- **Category**: Documentation
+- **Description**: The main `README.md` did not document the API contract (the expected JSON input and output format). While this information exists in `project_reference_documentation/02_spec.md`, a brief summary in the README improves discoverability for integrators.
+- **Impact**: Developers would otherwise need to search the repository for the detailed spec rather than finding a concise contract in the primary documentation.
+- **Recommendation**: Add a short API contract summary to `README.md` and link to `02_spec.md` for the full schema and edge cases.
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Added an "API Contract" section to the top-level `README.md` summarizing the OpenAI-compatible request/response format and linking to `project_reference_documentation/02_spec.md` for the full schema and examples.
 
 **Finding #24: Missing Documentation for Logging and Troubleshooting**
 - **Severity**: Medium
@@ -374,6 +382,14 @@ The critic mode review covers:
 - **Description**: The `README.md` lacks a dedicated section for operational concerns like logging and troubleshooting. It does not specify the CloudWatch LogGroup naming convention or the structure of the JSON logs, which is critical for debugging. There is also no troubleshooting guide for common errors.
 - **Impact**: When issues arise, operators or developers have no guidance on where to find logs or how to interpret them, slowing down incident response and problem resolution.
 - **Recommendation**: Add a "Logging and Troubleshooting" section to the `README.md`. This section should document the CloudWatch LogGroup name (e.g., `/aws/lambda/eliza-lambda-stack-ElizaLambdaFunction-XXXX`), provide an example of the structured JSON log output, and list common issues and their solutions (e.g., 403 Forbidden due to CIDR mismatch).
+**Finding #24: Missing Documentation for Logging and Troubleshooting**
+- **Severity**: Medium
+- **Category**: Documentation
+- **Description**: The `README.md` previously lacked a dedicated section for operational concerns such as logging and troubleshooting. It did not describe the CloudWatch LogGroup naming convention or the structured JSON log schema.
+- **Impact**: Operators and developers lacked quick guidance for diagnosing runtime issues and locating relevant logs.
+- **Recommendation**: Add a "Logging and Troubleshooting" section to `README.md` that documents the CloudWatch LogGroup naming, includes a sample structured log line, and lists common issues and remedies.
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Added a "Logging and Troubleshooting" section in `README.md` documenting the CloudWatch LogGroup convention, an example structured JSON log entry, and troubleshooting guidance for common errors (401/403/400/500).
 
 **Finding #25: No Links to Project Reference Documentation**
 - **Severity**: Low
@@ -381,6 +397,14 @@ The critic mode review covers:
 - **Description**: The `README.md` does not contain any links to the detailed planning, specification, and implementation documents located in the `project_reference_documentation/` directory.
 - **Impact**: This makes it difficult for new contributors or reviewers to understand the project's history, design decisions, and overall architecture. The valuable context in these documents is not easily discoverable.
 - **Recommendation**: Add a "Project Documentation" or "Design" section to the `README.md` that links to `01_planning.md`, `02_spec.md`, and `03_implementation.md`.
+**Finding #25: No Links to Project Reference Documentation**
+- **Severity**: Low
+- **Category**: Documentation
+- **Description**: The `README.md` omitted direct links to the project's reference documents under `project_reference_documentation/`, making them less discoverable.
+- **Impact**: New contributors or reviewers could miss important design rationale and implementation details.
+- **Recommendation**: Add a "Project Documentation" section linking to `01_planning.md`, `02_spec.md`, and `03_implementation.md`.
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Added a "Project Documentation" section to `README.md` that links to `project_reference_documentation/01_planning.md`, `02_spec.md`, and `03_implementation.md` for easy access to design and spec materials.
 
 **Finding #26: Missing License and Attribution for Submodule**
 - **Severity**: Medium
@@ -388,6 +412,14 @@ The critic mode review covers:
 - **Description**: The `README.md` does not mention the license of the `Eliza-GPT` submodule or provide proper attribution. The submodule itself contains a `LICENSE` file, but the main project should also acknowledge it.
 - **Impact**: This is a legal and ethical oversight. Failing to provide proper attribution for third-party code violates the terms of many open-source licenses and is poor practice.
 - **Recommendation**: Add a "License and Attribution" section to the `README.md`. This section should state that the project includes the `Eliza-GPT` submodule, mention its license (e.g., MIT License), and link to the original repository or its license file.
+**Finding #26: Missing License and Attribution for Submodule**
+- **Severity**: Medium
+- **Category**: Documentation, Legal
+- **Description**: The `README.md` previously did not mention the `Eliza-GPT` submodule's license or provide attribution.
+- **Impact**: This omission could lead to license compliance issues or lack of proper attribution when redistributing the project.
+- **Recommendation**: Add a "License and Attribution" section to `README.md` that points to the submodule's license file and notes attribution requirements.
+- **Status**: Resolved (2025-10-22)
+- **Resolution**: Added a "License and Attribution" section to `README.md` indicating that the `Eliza-GPT` submodule is included at `Eliza-GPT/` and pointing to `Eliza-GPT/LICENSE` for the submodule's license and attribution details.
 
 ---
 
