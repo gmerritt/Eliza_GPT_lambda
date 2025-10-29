@@ -135,6 +135,73 @@ def extract_caller_ip(event) -> str:
         return ''
 
 
+def _extract_text_from_content(content) -> str:
+    """Normalize various incoming message content shapes into a plain text string.
+
+    Handles:
+    - plain strings
+    - dicts like {"type": "text", "text": "..."} or {"text": "..."}
+    - lists of such dicts (e.g., multipart messages containing images and text)
+
+    Non-text parts (image/base64) are ignored.
+    Returns empty string when no textual content is found.
+    """
+    if content is None:
+        return ''
+
+    # Already a plain string
+    if isinstance(content, str):
+        return content
+
+    # Dict-like content
+    if isinstance(content, dict):
+        # Common shapes: {'text': '...'}, {'content': '...'}, {'type':'text','text':'...'}
+        text_val = content.get('text')
+        if isinstance(text_val, str):
+            return text_val
+        content_val = content.get('content')
+        if isinstance(content_val, str):
+            return content_val
+        # Some payloads use 'parts' as a list of strings
+        parts = content.get('parts')
+        if isinstance(parts, list):
+            return ' '.join([p for p in parts if isinstance(p, str)])
+        return ''
+
+    # List-like content: aggregate textual parts and ignore others (like images/base64)
+    if isinstance(content, (list, tuple)):
+        pieces = []
+        for el in content:
+            if isinstance(el, str):
+                pieces.append(el)
+                continue
+            if not isinstance(el, dict):
+                # ignore unexpected element types
+                continue
+
+            # nested dict shapes similar to above
+            text_val = el.get('text')
+            if isinstance(text_val, str):
+                pieces.append(text_val)
+                continue
+            content_val = el.get('content')
+            if isinstance(content_val, str):
+                pieces.append(content_val)
+                continue
+            parts = el.get('parts')
+            if isinstance(parts, list):
+                pieces.extend([p for p in parts if isinstance(p, str)])
+            # otherwise ignore (e.g., image_url with base64 blobs)
+
+        return ' '.join(pieces).strip()
+
+    # Fallback: coerce to string for unexpected types to avoid returning lists/other types
+    try:
+        return str(content)
+    except Exception:
+        return ''
+
+
 def ip_allowed(caller_ip: str, allowed_cidrs: str) -> bool:
     if not allowed_cidrs:
         return True
@@ -241,29 +308,27 @@ def lambda_handler(event, context):
         if not auth or not api_key or auth != f'Bearer {api_key}':
             return make_response(401, {'error': {'message': 'Invalid or missing API key', 'type': 'unauthorized'}})
 
-    # Extract messages
+    # Extract messages - only use the LAST user message text, ignore history and base64
     messages = payload.get('messages') or []
-    # If there are system messages, prepend their content to the first user message
-    system_texts = [m.get('content', '') for m in messages if m.get('role') == 'system']
-    user_messages = [m.get('content', '') for m in messages if m.get('role') in ('user', 'system') or m.get('role') == 'assistant']
-
-    if not user_messages:
-        return make_response(400, {'error': {'message': 'No messages provided', 'type': 'bad_request'}})
+    
+    # Find the most recent user message
+    user_input = ''
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get('role') == 'user':
+            user_input = _extract_text_from_content(msg.get('content'))
+            if user_input:
+                break
+    
+    if not user_input:
+        return make_response(400, {'error': {'message': 'No user message provided', 'type': 'bad_request'}})
 
     general_script, script, memory_inputs = get_eliza_state()
 
-    # For ELIZA, pass the entire conversation as sequence of messages
+    # Generate response from the single user input (Eliza is stateless per request)
     try:
-        # The Eliza generate_response expects a single input string; v1 used messages loop
-        # We'll call generate_response for each user message and take the last response
-        memory_stack = []
-        response_text = ''
-        for msg in user_messages:
-            response_text = generate_response(msg, script, general_script['substitutions'], memory_stack, memory_inputs)
-
-        # Clean response of Eliza prompt suffix (v1 removed 'Eliza: ' and '\nYou: ')
+        response_text = generate_response(user_input, script, general_script['substitutions'], [], memory_inputs)
+        # Clean response of Eliza prompt suffix
         response_text = response_text.replace('Eliza: ', '').replace('\nYou: ', '')
-
     except Exception as e:
         logger.exception('Eliza generation failed: %s', e)
         return make_response(500, {'error': {'message': 'Internal error generating response', 'type': 'server_error'}})
@@ -271,8 +336,7 @@ def lambda_handler(event, context):
     elapsed_ms = int((time.time() - start) * 1000)
 
     # Calculate token estimates
-    prompt_text = ' '.join(user_messages)
-    prompt_tokens = estimate_tokens(prompt_text)
+    prompt_tokens = estimate_tokens(user_input)
     completion_tokens = estimate_tokens(response_text)
     total_tokens = prompt_tokens + completion_tokens
 
