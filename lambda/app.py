@@ -23,6 +23,20 @@ logger = logging.getLogger('eliza_lambda')
 logger.setLevel(logging.INFO)
 
 
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate token count based on word count.
+    Uses a rough approximation: 1 token ≈ 0.75 words (or 1.33 tokens per word).
+    This is a common rule of thumb for English text with GPT models.
+    """
+    if not text:
+        return 0
+    # Split on whitespace and count words
+    word_count = len(text.split())
+    # Apply approximation: ~1.33 tokens per word
+    return max(1, int(word_count * 1.33))
+
+
 def _init_eliza() -> Tuple[dict, list, list]:
     """Initialize Eliza scripts and return (general_script, script, memory_inputs)."""
     if eliza_setup is None:
@@ -209,6 +223,12 @@ def lambda_handler(event, context):
 
     elapsed_ms = int((time.time() - start) * 1000)
 
+    # Calculate token estimates
+    prompt_text = ' '.join(user_messages)
+    prompt_tokens = estimate_tokens(prompt_text)
+    completion_tokens = estimate_tokens(response_text)
+    total_tokens = prompt_tokens + completion_tokens
+
     # Structured log
     log_entry = {
         'timestamp': int(time.time()),
@@ -217,7 +237,10 @@ def lambda_handler(event, context):
         'path': event.get('rawPath') or event.get('path'),
         'status_code': 200,
         'latency_ms': elapsed_ms,
-        'message_preview': response_text[:120]
+        'message_preview': response_text[:120],
+        'prompt_tokens': prompt_tokens,
+        'completion_tokens': completion_tokens,
+        'total_tokens': total_tokens
     }
     print(json.dumps(log_entry))
 
@@ -233,7 +256,11 @@ def lambda_handler(event, context):
                 'finish_reason': 'stop'
             }
         ],
-        'usage': {'prompt_tokens': 0, 'completion_tokens': 0, 'total_tokens': 0}
+        'usage': {
+            'prompt_tokens': prompt_tokens,
+            'completion_tokens': completion_tokens,
+            'total_tokens': total_tokens
+        }
     }
 
     return make_response(200, out)
