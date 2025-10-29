@@ -13,6 +13,7 @@ TEMPLATE_FILE=template.yaml
 ZIP_NAME=eliza_lambda_package.zip
 ZIP_PATH="$(pwd)/$ZIP_NAME"
 LAMBDA_DIR=lambda
+ALLOWED_CALLER_CIDR="0.0.0.0/0"
 
 show_usage() {
   cat <<EOF
@@ -28,6 +29,7 @@ Options:
   --api-key-ssm PARAM     SSM Parameter name containing API key
   --api-key-secret ARN    Secrets Manager secret ARN/ID containing API key
   --log-requests          Enable verbose logging of incoming requests (default: false)
+  --allowed-cidr CIDR     Comma-separated CIDR(s) allowed to call the Lambda (default: 34.214.132.110/32)
 
 Examples:
   $0
@@ -62,6 +64,10 @@ while [ $# -gt 0 ]; do
       ;;
     --api-key-secret)
       API_KEY_SECRET="$2"
+      shift 2
+      ;;
+    --allowed-cidr)
+      ALLOWED_CALLER_CIDR="$2"
       shift 2
       ;;
     --log-requests)
@@ -146,6 +152,8 @@ echo "Packaging and deploying CloudFormation stack ($STACK_NAME)"
 aws cloudformation package --template-file "$TEMPLATE_FILE" --s3-bucket "$S3_BUCKET" --output-template-file packaged-template.yaml
 # Build parameter overrides as an array to avoid word-splitting/quoting issues
 PARAM_OVERRIDES=("LambdaS3Bucket=$S3_BUCKET" "LambdaS3Key=$KEY" "RequireApiKey=$( [ -n \"$API_KEY_PLAIN\" -o -n \"$API_KEY_SSM\" -o -n \"$API_KEY_SECRET\" ] && echo true || echo false )" "LogRequests=$LOG_REQUESTS")
+# Include AllowedCallerCIDR parameter so deployments set the env var / WAF IPSet
+PARAM_OVERRIDES+=("AllowedCallerCIDR=$ALLOWED_CALLER_CIDR")
 if [ -n "$API_KEY_PLAIN" ]; then
   # Create a Secrets Manager secret for the plain key to avoid storing plaintext in CFN
   secret_name="eliza/api_key/$STACK_NAME-$(date +%s)"

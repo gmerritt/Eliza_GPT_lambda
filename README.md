@@ -14,7 +14,8 @@ A compact, deployable AWS Lambda project that exposes the classic Eliza chatbot 
 ## Quick notes
 
 - The Lambda handler expects POST requests similar to OpenAI's Chat Completions API: a JSON body with `messages`, where each message has `role` and `content`. The handler uses the last `user` message's textual content to generate an Eliza response.
-- The handler supports optional API-key protection (via environment variables and Secrets Manager at deploy time) and CIDR allow-listing (`ALLOWED_CALLER_CIDR`).
+- The handler supports optional API-key protection (via environment variables and Secrets Manager at deploy time) and CIDR-based IP allow-listing (`ALLOWED_CALLER_CIDR` environment variable).
+- IP restrictions are enforced at the Lambda level: the handler checks the caller's IP (from `X-Forwarded-For` or `requestContext.http.sourceIp`) against the configured CIDR(s) and returns HTTP 403 if not allowed. Use `--allowed-cidr` when deploying to restrict access (defaults to `0.0.0.0/0` if not specified).
 - Streaming is supported by returning an SSE-formatted body (single response body containing newline-separated `data: ...` chunks). See `lambda/app.py` for details and the `SSE_CHUNK_SIZE` / `MODEL_NAME` environment variables.
 
 ## Local testing
@@ -36,15 +37,26 @@ This repository includes two convenience scripts that implement the common zero-
 - `deploy.sh` — packages the Lambda (including `lambda/` and the vendored Eliza sources), uploads a uniquely-named ZIP to S3, packages the CloudFormation template, and deploys the stack. Key behaviors and options:
   - Default stack name: `eliza-lambda-stack` (override with `--stack-name`).
   - Default deployment S3 bucket: `eliza-gpt-deploy` if not provided; you can pass a unique bucket name as the first positional argument.
-  - Options: `--api-key` (plain API key; stored in Secrets Manager), `--api-key-ssm` (use an existing SSM parameter), `--api-key-secret` (use an existing Secrets Manager secret), and `--log-requests` (enable verbose request logging).
+  - Options:
+    - `--api-key` (plain API key; stored in Secrets Manager)
+    - `--api-key-ssm` (use an existing SSM parameter)
+    - `--api-key-secret` (use an existing Secrets Manager secret)
+    - `--log-requests` (enable verbose request logging)
+    - `--allowed-cidr` (comma-separated CIDR blocks for IP allow-listing; defaults to `0.0.0.0/0` if not specified)
   - The script creates a Secrets Manager secret automatically when `--api-key` is used so the plain key isn't embedded in CloudFormation.
   - After a successful deploy the script attempts to read the stack output `ApiUrl` and writes a `litellm_config.yaml` file (with the API URL and API key if provided).
 
-  Example (use default bucket name and a provided API key):
+  Example (use default bucket name, API key, and restrict to a single IP):
 
   ```bash
   chmod +x deploy.sh
-  ./deploy.sh --stack-name eliza-lambda-stack --api-key my-api-key-123 --log-requests
+  ./deploy.sh --api-key my-api-key-123 --log-requests --allowed-cidr 34.214.132.110/32
+  ```
+
+  Example (allow all IPs, use API key from Secrets Manager):
+
+  ```bash
+  ./deploy.sh --api-key-secret arn:aws:secretsmanager:us-west-2:123456789012:secret:my-key
   ```
 
 - `undeploy.sh` — removes the CloudFormation stack and tries to clean up deployment artifacts and secrets created by the deployer. Key behaviors and options:
