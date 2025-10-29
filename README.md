@@ -1,5 +1,9 @@
 # Eliza-GPT Lambda
 
+<p align="center">
+  <img src="ELIZA.png" width="400" alt="Icon of a black circle with a green letter E centered in it" />
+</p>
+
 A compact, deployable AWS Lambda project that exposes the classic Eliza chatbot via an OpenAI-style chat completion API. The Lambda handler is implemented in `lambda/app.py` and packages the Eliza implementation so the function can run standalone in AWS Lambda.
 
 ## Acknowledgments
@@ -34,6 +38,7 @@ The following diagram illustrates the AWS infrastructure and request flow:
 ![Infrastructure Diagram](infrastructure.png)
 
 The architecture consists of:
+
 - **API Gateway (HTTP API)**: Receives incoming HTTP requests and forwards them to the Lambda function
 - **Lambda Function**: Processes OpenAI-compatible chat completion requests using the Eliza-GPT chatbot
 - **CloudWatch Logs**: Captures function logs and optional request/response details (when `LOG_REQUESTS` is enabled)
