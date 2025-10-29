@@ -2,14 +2,45 @@
 
 A compact, deployable AWS Lambda project that exposes the classic Eliza chatbot via an OpenAI-style chat completion API. The Lambda handler is implemented in `lambda/app.py` and packages the Eliza implementation so the function can run standalone in AWS Lambda.
 
+## Acknowledgments
+
+This project uses [Eliza-GPT](https://github.com/miguelgrinberg/Eliza-GPT) by Miguel Grinberg as a git submodule. Eliza-GPT is a Python implementation of the classic ELIZA chatbot that provides an OpenAI-compatible API interface. All credit for the core Eliza logic and implementation goes to Miguel Grinberg and the Eliza-GPT project.
+
+### About ELIZA
+
+ELIZA, created by MIT computer scientist Joseph Weizenbaum in 1966, is often considered the world's first chatbot. Weizenbaum designed ELIZA to simulate a Rogerian psychotherapist by cleverly turning a client's statements into questions (*People don't like me.* → *Why do you think people don't like you?*). This technique created the illusion of understanding without the program actually comprehending what users were saying.
+
+Despite its simplicity—or perhaps because of it—ELIZA was surprisingly effective at convincing users that it understood them. As Weizenbaum described in his [original 1966 paper](https://dl.acm.org/doi/10.1145/365153.365168), "*ELIZA—a computer program for the study of natural language communication between man and machine*," the program demonstrated that computers didn't need genuine understanding to engage in apparently meaningful conversation.
+
+The enthusiastic response to ELIZA troubled Weizenbaum. He later argued that human intelligence and computer logic are fundamentally different and "alien" to one another, declaring in his 1976 book *Computer Power and Human Reason* that the notion of computerized psychotherapy was "perverse." He believed that even if computers became powerful enough to perform automated therapy, replacing human connection with algorithmic interaction would be fundamentally wrong.
+
+Today, ELIZA's legacy lives on in countless chatbots and virtual assistants, and its core insight—that the *appearance* of understanding can be compelling even without genuine comprehension—remains relevant as we grapple with modern AI systems and automated mental health applications.
+
+For a thoughtful exploration of ELIZA's history and its implications for contemporary computerized therapy, see ["When You Say One Thing but Mean Your Motherboard"](https://logicmag.io/care/when-you-say-one-thing-but-mean-your-motherboard/) by Matthew Seiji Burns.
+
 ## What this repository contains
 
 - `lambda/app.py` — Lambda handler and request processing (parses OpenAI-style messages, runs Eliza, returns chat completion JSON or SSE chunks for streaming).
 - `template.yaml` — CloudFormation template describing the Lambda, IAM role, API Gateway HTTP API, and LogGroup.
 - `deploy.sh` / `undeploy.sh` — convenience scripts to package, deploy, and remove the stack from an AWS account.
-- `Eliza-GPT/` — vendored Eliza-GPT source used by the handler (kept as a submodule/source tree under the repo).
+- `Eliza-GPT/` — git submodule containing the [Eliza-GPT](https://github.com/miguelgrinberg/Eliza-GPT) implementation by Miguel Grinberg, used by the Lambda handler.
 - `tests/` — unit tests for local validation (e.g., `tests/test_handler.py` and repository-level tests).
 - `litellm_config.yaml` — generated during deployment to help connect LiteLLM or similar proxies to the deployed endpoint.
+
+## Architecture
+
+The following diagram illustrates the AWS infrastructure and request flow:
+
+![Infrastructure Diagram](infrastructure.png)
+
+The architecture consists of:
+- **API Gateway (HTTP API)**: Receives incoming HTTP requests and forwards them to the Lambda function
+- **Lambda Function**: Processes OpenAI-compatible chat completion requests using the Eliza-GPT chatbot
+- **CloudWatch Logs**: Captures function logs and optional request/response details (when `LOG_REQUESTS` is enabled)
+- **Secrets Manager** (optional): Stores API keys securely when API key authentication is enabled
+- **IP Allow-listing**: Enforced at the Lambda level using the `ALLOWED_CALLER_CIDR` environment variable to restrict access by source IP
+
+The Lambda handler validates requests, checks API keys and IP restrictions, generates Eliza responses, and returns OpenAI-compatible JSON (or SSE chunks for streaming responses).
 
 ## Quick notes
 
@@ -89,12 +120,3 @@ fileConfig:
 ```
 
 Place that snippet in the LibreChat configuration so LibreChat does not attempt file uploads against this simple chat-only endpoint.
-
-## Where to look next
-
-- `lambda/app.py` — main behavior and environment variables (`REQUIRE_API_KEY`, `API_KEY`, `ALLOWED_CALLER_CIDR`, `LOG_REQUESTS`, `SSE_CHUNK_SIZE`, `MODEL_NAME`).
-- `template.yaml` — CloudFormation parameters (API key, allowed CIDR, etc.).
-- `Eliza-GPT/src/eliza_gpt` — Eliza implementation used at runtime.
-- `tests/` — unit tests for the handler and local validation.
-
-If you want, I can also trim or reorganize other docs, or add a short `USAGE.md` with example client calls. For now this README is aligned to the current code and handler behavior.
