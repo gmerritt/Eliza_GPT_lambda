@@ -22,5 +22,4 @@ eliza_lambda_package.zip
 # Ignore other lambda package zip files created by packaging scripts
 *_lambda_package.zip
 
-litellm_config.yaml
 

@@ -87,6 +87,7 @@ Or use defaults:
 - `--api-key KEY` (optional) — API key for authentication. Stored securely in Secrets Manager.
 - `--api-key-ssm PARAM` (optional) — Use existing SSM Parameter for API key
 - `--api-key-secret ARN` (optional) — Use existing Secrets Manager secret for API key
+- `--log-requests` (optional) — Enable verbose logging of incoming requests. Default: disabled
 
 **Examples:**
 
@@ -95,10 +96,16 @@ Or use defaults:
 ./deploy.sh my-deploy-bucket
 
 # With API key authentication
-./deploy.sh my-deploy-bucket eliza-production sk-myapikey123
+./deploy.sh my-deploy-bucket --stack-name eliza-production --api-key sk-myapikey123
 
 # Custom stack name, no auth
-./deploy.sh my-deploy-bucket my-custom-stack
+./deploy.sh my-deploy-bucket --stack-name my-custom-stack
+
+# Enable verbose request logging for debugging
+./deploy.sh my-deploy-bucket --log-requests
+
+# Combine multiple options
+./deploy.sh my-deploy-bucket --stack-name dev-eliza --api-key my-key --log-requests
 ```
 
 ### What happens during deployment
@@ -235,6 +242,16 @@ Log entries are single-line JSON objects containing fields such as `timestamp`, 
 
 ```json
 {"timestamp":"2025-10-22T12:34:56Z","request_id":"abcd-1234","caller_ip":"203.0.113.5","path":"/v1/chat/completions","status_code":200,"latency_ms":12,"message_preview":"hello"}
+```
+
+### Verbose Request Logging
+
+For debugging purposes, you can enable verbose request logging by deploying with the `--log-requests` flag. When enabled, the Lambda will log the complete incoming request event (including headers, body, and all API Gateway metadata) to CloudWatch Logs. This is useful for troubleshooting integration issues but should be used with caution in production due to increased log volume and potential exposure of sensitive data.
+
+Example log entry with request logging enabled:
+
+```json
+{"request_id":"abcd-1234","event":{"headers":{"authorization":"Bearer ***","content-type":"application/json"},"body":"{\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}","requestContext":{...}},"caller_ip":"203.0.113.5","log_type":"request_verbatim"}
 ```
 
 Common troubleshooting tips:

@@ -168,6 +168,16 @@ def lambda_handler(event, context):
     req_id = getattr(context, 'aws_request_id', None) or str(uuid.uuid4())
     caller_ip = extract_caller_ip(event)
 
+    # Check if verbose request logging is enabled
+    log_requests = os.environ.get('LOG_REQUESTS', 'false').lower() in ('1', 'true', 'yes')
+    if log_requests:
+        logger.info(json.dumps({
+            'request_id': req_id,
+            'event': event,
+            'caller_ip': caller_ip,
+            'log_type': 'request_verbatim'
+        }))
+
     allowed_cidrs = os.environ.get('ALLOWED_CALLER_CIDR', '')
     require_api_key = os.environ.get('REQUIRE_API_KEY', 'false').lower() in ('1', 'true', 'yes')
     api_key = os.environ.get('API_KEY')
