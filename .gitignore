@@ -1,3 +1,6 @@
+# Ignore local secrets and config
+# Added by GitHub Copilot to keep litellm_config secret
+litellm_config.yaml
 node_modules/
 __pycache__/
 .env
