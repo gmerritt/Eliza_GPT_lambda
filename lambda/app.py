@@ -163,6 +163,43 @@ def make_response(status_code: int, body: dict):
     }
 
 
+def _build_sse_body(response_text: str, chat_id: str, model_name: str = 'eliza-lambda', chunk_size: int = 64) -> str:
+    """
+    Build a single string body containing SSE-formatted data chunks followed by [DONE].
+    Each content chunk is JSON per the spec, prefixed with 'data: ' and followed by two newlines.
+
+    Note: This constructs the SSE stream as a single response body. If true HTTP streaming
+    (progressive chunks during Lambda execution) is required, the API Gateway/Lambda setup
+    must support streaming; this function provides the SSE format compatible with LiteLLM's parser.
+    """
+    if not response_text:
+        # If empty response, just send DONE
+        return 'data: [DONE]\n\n'
+
+    parts = []
+    # Chunk by fixed number of characters to approximate streaming partials.
+    for i in range(0, len(response_text), chunk_size):
+        seg = response_text[i:i + chunk_size]
+        chunk_payload = {
+            "id": chat_id,
+            "object": "chat.completion.chunk",
+            "created": int(time.time()),
+            "model": model_name,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"content": seg},
+                    "finish_reason": None
+                }
+            ]
+        }
+        parts.append('data: ' + json.dumps(chunk_payload) + '\n\n')
+
+    # Final termination chunk
+    parts.append('data: [DONE]\n\n')
+    return ''.join(parts)
+
+
 def lambda_handler(event, context):
     start = time.time()
     req_id = getattr(context, 'aws_request_id', None) or str(uuid.uuid4())
@@ -272,5 +309,32 @@ def lambda_handler(event, context):
             'total_tokens': total_tokens
         }
     }
+
+    # If the caller asked for streaming, return SSE formatted body
+    # (payload is parsed earlier from the incoming event)
+    try:
+        stream_requested = False
+        # payload may be in local scope of lambda_handler
+        stream_requested = payload.get('stream') is True or payload.get('stream') == 'true'
+    except Exception:
+        stream_requested = False
+
+    if stream_requested:
+        model_name = os.environ.get('MODEL_NAME', 'eliza-lambda')
+        chunk_size_env = os.environ.get('SSE_CHUNK_SIZE')
+        try:
+            chunk_size = int(chunk_size_env) if chunk_size_env else 64
+        except Exception:
+            chunk_size = 64
+
+        sse_body = _build_sse_body(response_text, chat_id, model_name=model_name, chunk_size=chunk_size)
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache'
+            },
+            'body': sse_body
+        }
 
     return make_response(200, out)
