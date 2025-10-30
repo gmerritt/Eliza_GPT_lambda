@@ -6,9 +6,13 @@
 
 A compact, deployable AWS Lambda project that exposes the classic Eliza chatbot via an OpenAI-style chat completion API. The Lambda handler is implemented in `lambda/app.py` and packages the Eliza implementation so the function can run standalone in AWS Lambda.
 
+<a name="acknowledgments"></a>
+
 ## Acknowledgments
 
 This project uses [Eliza-GPT](https://github.com/miguelgrinberg/Eliza-GPT) by Miguel Grinberg as a git submodule. Eliza-GPT is a Python implementation of the classic ELIZA chatbot that provides an OpenAI-compatible API interface. All credit for the core Eliza logic and implementation goes to Miguel Grinberg and the Eliza-GPT project.
+
+<a name="about-eliza"></a>
 
 ### About ELIZA
 
@@ -22,6 +26,8 @@ Today, ELIZA's legacy lives on in countless chatbots and virtual assistants, and
 
 For a thoughtful exploration of ELIZA's history and its implications for contemporary computerized therapy, see ["When You Say One Thing but Mean Your Motherboard"](https://logicmag.io/care/when-you-say-one-thing-but-mean-your-motherboard/) by Matthew Seiji Burns.
 
+<a name="what-this-repository-contains"></a>
+
 ## What this repository contains
 
 - `lambda/app.py` — Lambda handler and request processing (parses OpenAI-style messages, runs Eliza, returns chat completion JSON or SSE chunks for streaming).
@@ -30,6 +36,8 @@ For a thoughtful exploration of ELIZA's history and its implications for contemp
 - `Eliza-GPT/` — git submodule containing the [Eliza-GPT](https://github.com/miguelgrinberg/Eliza-GPT) implementation by Miguel Grinberg, used by the Lambda handler.
 - `tests/` — unit tests for local validation (e.g., `tests/test_handler.py` and repository-level tests).
 - `litellm_config.yaml` — generated during deployment to help connect LiteLLM or similar proxies to the deployed endpoint.
+
+<a name="architecture"></a>
 
 ## Architecture
 
@@ -47,12 +55,16 @@ The architecture consists of:
 
 The Lambda handler validates requests, checks API keys and IP restrictions, generates Eliza responses, and returns OpenAI-compatible JSON (or SSE chunks for streaming responses).
 
+<a name="quick-notes"></a>
+
 ## Quick notes
 
 - The Lambda handler expects POST requests similar to OpenAI's Chat Completions API: a JSON body with `messages`, where each message has `role` and `content`. The handler uses the last `user` message's textual content to generate an Eliza response.
 - The handler supports optional API-key protection (via environment variables and Secrets Manager at deploy time) and CIDR-based IP allow-listing (`ALLOWED_CALLER_CIDR` environment variable).
 - IP restrictions are enforced at the Lambda level: the handler checks the caller's IP (from `X-Forwarded-For` or `requestContext.http.sourceIp`) against the configured CIDR(s) and returns HTTP 403 if not allowed. Use `--allowed-cidr` when deploying to restrict access (defaults to `0.0.0.0/0` if not specified).
 - Streaming is supported by returning an SSE-formatted body (single response body containing newline-separated `data: ...` chunks). See `lambda/app.py` for details and the `SSE_CHUNK_SIZE` / `MODEL_NAME` environment variables.
+
+<a name="local-testing"></a>
 
 ## Local testing
 
@@ -62,9 +74,13 @@ The Lambda handler validates requests, checks API keys and IP restrictions, gene
 pytest tests/test_handler.py -q
 ```
 
+<a name="deployment-overview"></a>
+
 ## Deployment (overview)
 
 Use `deploy.sh` to package and deploy the stack. The scripts handle S3 packaging, optional Secrets Manager API key creation, and CloudFormation deployment. See `deploy.sh` and `undeploy.sh` for command-line parameters and examples. The deploy script will emit the API URL and can generate `litellm_config.yaml` for LiteLLM integration.
+
+<a name="deployment-scripts"></a>
 
 ### Deployment scripts
 
@@ -108,10 +124,14 @@ This repository includes two convenience scripts that implement the common zero-
   ./undeploy.sh my-deploy-bucket --stack-name eliza-lambda-stack
   ```
 
+<a name="integration-usage"></a>
+
 ## Integration / Usage
 
 - Requests: POST to `/v1/chat/completions` with a JSON `messages` array. The handler returns OpenAI-compatible completion JSON. When `stream: true` is provided in the payload, the response is SSE-formatted (single response body containing chunks and a final `data: [DONE]`).
 - Responses include a minimal `usage` section and a single `choices[0].message` with `role: assistant` and Eliza's reply.
+
+<a name="librechat-litellm-note"></a>
 
 ## LibreChat + LiteLLM note
 
