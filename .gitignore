@@ -23,3 +23,7 @@ eliza_lambda_package.zip
 *_lambda_package.zip
 
 
+# Ignore packaged CloudFormation template produced by packaging/pack command
+packaged-template.yaml
+
+
