@@ -180,14 +180,14 @@ model_list:
   - model_name: eliza-lambda
     litellm_params:
       model: openai/eliza-lambda
-      api_base: ${API_URL}
+      api_base: ${API_URL%/}/v1/
       api_key: "${API_KEY_PLAIN}"
       supports_system_message: False
 
 general_settings:
   pass_through_endpoints:
     - path_prefix: /eliza
-      target_url: ${API_URL}
+      target_url: ${API_URL%/}/v1/
       headers:
         Authorization: "Bearer ${API_KEY_PLAIN}"
 EOF
